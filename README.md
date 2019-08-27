@@ -1,8 +1,7 @@
 # ohw19-projects-DataStreamSync
 Interface to sync and visualize data from several instruments
 
-
-Team members: Xavier Coral Massimo
+Team members: Xavier and Coral 
 
 # Instruments and data
 
@@ -40,4 +39,7 @@ Components:
 - [psycopg](http://initd.org/psycopg/)
 - [Panel](https://panel.pyviz.org/reference/index.html)
 - [HoloViz](https://holoviz.org/tutorial/index.html)
+
+
+
 
