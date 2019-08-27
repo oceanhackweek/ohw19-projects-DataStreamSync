@@ -12,6 +12,8 @@ The platform has three types of instruments
 - 1x Video camera: .mp4 files
 - 1x omnidirectional hydrophone: .wav files
 
+![](https://www.oceannetworks.ca/sites/default/files/images/posts/2017-04-Delta-site.jpg)
+
 A basic automatic fish sound detector has be run through the hydrophone data. Results from this detector are in .mat files.
 
 # Objective of this project:
