@@ -315,6 +315,31 @@ def getVideofileInfo(path, name):
         }
     return videofileinfo
 
+def getRecordID(db,tablename,t):
+    cursor = db.connection.cursor()
+    postgreSQL_select_Query = "select id from " + tablename + " where start_time_utc_unix < %s and stop_time_utc_unix > %s"
+    cursor.execute(postgreSQL_select_Query, (t,t,))
+    records = cursor.fetchall()
+    try:
+        f=records[0][0]
+    except:
+        f=-1
+    return f
+
+def getRecord(db,tablename,ID):
+    cursor = db.connection.cursor()
+    postgreSQL_select_Query = "select * from " + tablename + " where id = %s"
+    cursor.execute(postgreSQL_select_Query, (ID,))
+    records = cursor.fetchall()
+    wavfileinfo = {
+            'dirpath': records[0][1],
+            'fs_hz': records[0][3],
+            'filename': records[0][2],
+            'dur_sec': records[0][4],    
+            'startdate_unix': records[0][5],
+            'stoptdate_unix': records[0][6]           
+            }
+    return wavfileinfo
 
 def getSonarfileInfo(path, name):
     fullfilename = os.path.join(path, name)
@@ -375,6 +400,11 @@ def main():
     detecdir = r'J:\ONC_FAE\detections\hydrophone\20180329\raw_detections\dev'
     db.createTableAudioDetections('AUDIO_DETECTIONS')
     db.addAudioDetections2Db(detecdir)
+ 
+    # Scan through audio detections (.mat) files and populate posgres table
+    detecdir = r'J:\ONC_FAE\detections\hydrophone\20180329\raw_detections\dev'
+    db.createTableAudioDetections('AUDIO_DETECTIONS_FILTERED')
+    db.addFilteredAudioDetections2Db(detecdir)
     
     # close connection to database
     db.close()

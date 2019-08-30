@@ -12,6 +12,8 @@ import hvplot.pandas
 import scipy.signal
 import matplotlib.pyplot as plt
 import panel as pn
+import panel.widgets as pnw
+import cv2
 
 def getDetecTimes(rowID,df):
     t1 = df.loc[rowID]['start_time_utc_unix']
@@ -37,6 +39,36 @@ def getRecord(db,tablename,ID):
             'dur_sec': records[0][4],    
             'startdate_unix': records[0][5],
             'stoptdate_unix': records[0][6]           
+            }
+    return wavfileinfo
+
+def getVideoRecord(db,tablename,ID):
+    cursor = db.connection.cursor()
+    postgreSQL_select_Query = "select * from " + tablename + " where id = %s"
+    cursor.execute(postgreSQL_select_Query, (ID,))
+    records = cursor.fetchall()
+    fileinfo = {
+            'dirpath': records[0][1],
+            'fps': records[0][3],
+            'filename': records[0][2],
+            'dur_sec': records[0][4],    
+            'startdate_unix': records[0][9],
+            'stoptdate_unix': records[0][10]           
+            }
+    return fileinfo
+
+def getSonarRecord(db,tablename,ID):
+    cursor = db.connection.cursor()
+    postgreSQL_select_Query = "select * from " + tablename + " where id = %s"
+    cursor.execute(postgreSQL_select_Query, (ID,))
+    records = cursor.fetchall()
+    wavfileinfo = {
+            'dirpath': records[0][1],
+            'fps': records[0][3],
+            'filename': records[0][2],
+            'dur_sec': records[0][4],    
+            'startdate_unix': records[0][9],
+            'stoptdate_unix': records[0][10]           
             }
     return wavfileinfo
 
@@ -68,11 +100,10 @@ def getSpectrogram(info, t1,t2):
 # GET AUDIO WAVEFOREM
 
 def displayWaveform(rowID=1):
+    rowID=int(rowID)
     # Open database
     db = Database()
-    db.open()
-    # import detection table
-    df = pd.read_sql('select * from audio_detections', con=db.connection)
+    db.open()    
     # import detection table
     df = pd.read_sql('select * from audio_detections', con=db.connection)
     # Name of the table
@@ -84,13 +115,20 @@ def displayWaveform(rowID=1):
     # Get info for that record
     info = getRecord(db,tablename,ID)
     df2, xaxis, waveform, fs = getWaveform(info, t1,t2) 
+    db.close()
     return df2.hvplot.line()
 
-def displaysSpectrogram(rowID=0):
+def displaySpectrogram(rowID=1):
+    # Open database
+    rowID=int(rowID)
+    db = Database()
+    db.open()
+    # import detection table
+    df = pd.read_sql('select * from audio_detections', con=db.connection)
     # Name of the table
     tablename = 'audio_data'
     # time of the detection
-    t1, t2 = getDetecTimes(rowID)
+    t1, t2 = getDetecTimes(rowID,df)
     # ID of file for that detection
     ID = getRecordID(db,tablename,t1)
     # Get info for that record
@@ -99,5 +137,71 @@ def displaysSpectrogram(rowID=0):
     faxis, taxis, S, df3 = getSpectrogram(info, t1,t2)
     return hv.Image(S)
 
-pn.extension()
-pn.interact(displayWaveform,n=(0,1000))
+def displayVideo(rowID=1):
+    # Open database
+    rowID=int(rowID)
+    db = Database()
+    db.open()
+    # import detection table
+    df = pd.read_sql('select * from audio_detections', con=db.connection)
+    # Name of the table
+    tablename = 'video_data'
+    # time of the detection
+    t1, t2 = getDetecTimes(rowID,df)
+    # ID of file for that detection
+    ID = getRecordID(db,tablename,t1)
+    # Get info for that record
+    info = getVideoRecord(db,tablename,ID)
+    #faxis, taxis, S, df3 = getVideoFrame(info, t1,t2)
+    filename=os.path.join(info['dirpath'],info['filename'])
+    frameTime = t1 - info['startdate_unix']
+    video = cv2.VideoCapture(filename)
+    video.set(0,frameTime*1000) # set pointer to requested frame time (in ms)
+    grabbed, frame = video.read() 
+    frame_GS = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+    video.release()
+    img = hv.Image(frame_GS)
+    return hv.Layout([img.opts(cmap='gray',xaxis=None, yaxis=None)]) 
+
+def displaySonar(rowID=1):    
+    # Open database
+    rowID=int(rowID)
+    db = Database()
+    db.open()
+    # import detection table
+    df = pd.read_sql('select * from audio_detections', con=db.connection)
+    # Name of the table
+    tablename = 'aris_data'
+    # time of the detection
+    t1, t2 = getDetecTimes(rowID,df)
+    # ID of file for that detection
+    ID = getRecordID(db,tablename,t1)
+    # Get info for that record
+    info = getSonarRecord(db,tablename,ID)
+    filename=os.path.join(info['dirpath'],info['filename'])
+    frameTime = t1 - info['startdate_unix']
+    dt = t1 - info['startdate_unix']
+    dt_n = int(np.round(dt/info['fps']))
+    mat = scipy.io.loadmat(filename)
+    frames = mat['Data']['acousticData'][0, 0]
+    frame = np.transpose(frames[:,:,dt_n])
+    img = hv.Image(frame)
+    return hv.Layout([img.opts(cmap='kg',xaxis=None, yaxis=None)]) 
+
+
+##faxis, taxis, S, df3 = getVideoFrame(info, t1,t2)
+#filename=os.path.join(info['dirpath'],info['filename'])
+#frameTime = t1 - info['startdate_unix']
+#video = cv2.VideoCapture(filename)
+#video.set(0,frameTime*1000) # set pointer to requested frame time (in ms)
+#grabbed, frame = video.read() 
+#frame_GS = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+#video.release()
+#img = hv.Image(frame_GS)
+##return hv.Layout([img.opts(cmap='gray',xaxis=None, yaxis=None)]) 
+
+
+#dt_n = np.round(dt/info['fps'])
+#mat = scipy.io.loadmat(filename)
+#frames = mat['Data']['acousticData'][0, 0]
+##    
