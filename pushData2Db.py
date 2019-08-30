@@ -71,8 +71,8 @@ class Database():
                      FILENAME  TEXT   NOT NULL,
                      FS        INT   NOT NULL,
                      DURATION  REAL   NOT NULL,
-                     START_TIME_UTC_UNIX   REAL   NOT NULL,
-                     STOP_TIME_UTC_UNIX    REAL   NOT NULL,
+                     START_TIME_UTC_UNIX   DOUBLE PRECISION   NOT NULL,
+                     STOP_TIME_UTC_UNIX    DOUBLE PRECISION   NOT NULL,
                      START_TIME_UTC   DATE   NOT NULL,
                      STOP_TIME_UTC    DATE   NOT NULL
                      ); '''
@@ -93,8 +93,8 @@ class Database():
                          SIZE_Y INT NOT NULL,
                          RESOLUTION_X INT,
                          RESOLUTION_Y INT,
-                         START_TIME_UTC_UNIX   REAL   NOT NULL,
-                         STOP_TIME_UTC_UNIX    REAL   NOT NULL,
+                         START_TIME_UTC_UNIX   DOUBLE PRECISION   NOT NULL,
+                         STOP_TIME_UTC_UNIX    DOUBLE PRECISION   NOT NULL,
                          START_TIME_UTC   DATE   NOT NULL,
                          STOP_TIME_UTC    DATE   NOT NULL
                          ); '''
@@ -112,8 +112,8 @@ class Database():
                      DURATION  REAL   NOT NULL,
                      START_TIME_OFFSET REAL NOT NULL,
                      STOP_TIME_OFFSET REAL NOT NULL,
-                     START_TIME_UTC_UNIX   REAL   NOT NULL,
-                     STOP_TIME_UTC_UNIX    REAL   NOT NULL,
+                     START_TIME_UTC_UNIX   DOUBLE PRECISION   NOT NULL,
+                     STOP_TIME_UTC_UNIX    DOUBLE PRECISION   NOT NULL,
                      START_TIME_UTC   DATE   NOT NULL,
                      STOP_TIME_UTC    DATE   NOT NULL,
                      FREQ_MIN   REAL   NOT NULL,
@@ -161,7 +161,20 @@ class Database():
 
         except (Exception, psycopg2.DatabaseError) as error:
             print("Error while creating PostgreSQL table", error)
-            
+
+    def addDetection2Db(self, detecInfo):
+        try:            
+            try:
+                postgres_insert_query = """ INSERT INTO audio_detections (DIRPATH, FILENAME, DURATION, start_time_offset, stop_time_offset, start_time_utc_unix, stop_time_utc_unix, start_time_utc, stop_time_utc, freq_min, freq_max, class, class_confidence) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)"""
+                record_to_insert = (detecInfo['dirpath'], detecInfo['filename'],detecInfo['dur_sec'],detecInfo['t1_offset'], detecInfo['t2_offset'], detecInfo['startdate_unix'],  detecInfo['stoptdate_unix'], detecInfo['startdate_obj'], detecInfo['stoptdate_obj'],detecInfo['fmin'], detecInfo['fmax'],detecInfo['class'],detecInfo['confidence'])
+                self.cursor.execute(postgres_insert_query, record_to_insert)
+                self.connection.commit()
+                count = self.cursor.rowcount
+            except (Exception, psycopg2.DatabaseError) as error:
+                print("Error while creating PostgreSQL table", error)    
+        except:
+            print('Error - Detection not imported to DB')
+           
     def addAudioDataset2Db(self, datadir):
         for path, subdirs, files in os.walk(datadir):
             for name in files:
@@ -185,6 +198,53 @@ class Database():
                     print(name)
                     sonarfileinfo = getSonarfileInfo(path, name)
                     db.addSonarFile2Db(sonarfileinfo)
+    
+    def addAudioDetections2Db(self, detecdir):        
+        for path, subdirs, files in os.walk(detecdir):    
+            for name in files:
+                if name.lower().endswith('.mat'):
+                    print(name)
+                    try:
+                        fullfilename = os.path.join(path, name)
+                        FishClassID = 3 # hard coded for now
+                        # Load mat file
+                        mat = scipy.io.loadmat(fullfilename)            
+                        # Nb of detections
+                        nDetec = mat['Detec']['predClass'].shape[1]
+                        wavfile = mat['infile'][0][:]
+                        regex = r'\d{8}T\d{6}.\d{3}Z'
+                        datetimeformat = '%Y%m%dT%H%M%S.%fZ' 
+                        fileStartTime=filename2date(wavfile, regex, datetimeformat)
+                        for idx in range(1,nDetec):                        
+                            classID=mat['Detec']['predClass'][0][idx][0][0]
+                            if classID == FishClassID:
+                                classConf=mat['Detec']['confidence'][0][idx][0][FishClassID-1]
+                                t1_offset = mat['Detec']['t1'][0][idx][0][0]
+                                t2_offset = mat['Detec']['t2'][0][idx][0][0]
+                                fmin = mat['Detec']['fmin'][0][idx][0][0]
+                                fmax = mat['Detec']['fmax'][0][idx][0][0]
+                                t1_utc = fileStartTime + datetime.timedelta(seconds=t1_offset)
+                                t2_utc = fileStartTime + datetime.timedelta(seconds=t2_offset)
+                                t1_utc_unix = datetime2unix(t1_utc)
+                                t2_utc_unix = datetime2unix(t2_utc)                    
+                                detecInfo = {
+                                    'dirpath': path,
+                                    'filename': name,
+                                    'dur_sec': t2_offset-t1_offset,
+                                    't1_offset': t1_offset,
+                                    't2_offset': t2_offset,
+                                    'startdate_obj': t1_utc,
+                                    'stoptdate_obj': t2_utc,
+                                    'startdate_unix': t1_utc_unix,
+                                    'stoptdate_unix': t2_utc_unix,
+                                    'fmin': fmin,
+                                    'fmax': fmax,
+                                    'class': 'Fish',
+                                    'confidence': classConf
+                                    }
+                                db.addDetection2Db(detecInfo)
+                    except:
+                        print('Error - file not imported to DB')
 
 
 def datetime2unix(datetimeobj):
@@ -260,11 +320,11 @@ def getSonarfileInfo(path, name):
     fullfilename = os.path.join(path, name)
     # Load mat file
     mat = scipy.io.loadmat(fullfilename)
-    frames = mat['Data']['acousticData'][0,0]
+    frames = mat['Data']['acousticData'][0, 0]
     # get start and stop date/time
     datetimeformat = '%Y%m%dT%H%M%S.%fZ'
-    startdate = datetime.datetime.strptime(mat['Data']['startTime'][0,0][0], datetimeformat)
-    stopdate = datetime.datetime.strptime(mat['Data']['endTime'][0,0][0], datetimeformat)
+    startdate = datetime.datetime.strptime(mat['Data']['startTime'][0, 0][0], datetimeformat)
+    stopdate = datetime.datetime.strptime(mat['Data']['endTime'][0, 0][0], datetimeformat)
     # convert to date and times to Unix time
     startdateunix = datetime2unix(startdate)
     stoptdateunix = datetime2unix(stopdate)
@@ -286,43 +346,38 @@ def getSonarfileInfo(path, name):
                     }
     return sonarfileinfo
 
-## TO DO ##
-    # - Check if tables already exist before creating them
-    # - check that you can't duplicate entries
+def main():
+    # TO DO ######################################################################
+        # - Check if tables already exist before creating them
+        # - check that you can't duplicate entries
+    ##############################################################################
+    
+    # Open connection to posgres database
+    db = Database()
+    db.open()
+    
+    # Scan through audio files and populate posgres table
+    wavdir = r'J:\ONC_FAE\data\hydrophone\dev'
+    db.createTableAudioData('AUDIO_DATA')
+    db.addAudioDataset2Db(wavdir)
+    
+    # Scan through video files and populate posgres table
+    videodir = r'J:\ONC_FAE\data\camera\data\dev'
+    db.createTableVideoData('VIDEO_DATA')
+    db.addVideoDataset2Db(videodir)
+    
+    # Scan through sonar (.mat) files and populate posgres table
+    sonardir = r'J:\ONC_FAE\data\sonar\dev'
+    db.createTableVideoData('ARIS_DATA')
+    db.addSonarDataset2Db(sonardir)
+    
+    # Scan through audio detections (.mat) files and populate posgres table
+    detecdir = r'J:\ONC_FAE\detections\hydrophone\20180329\raw_detections\dev'
+    db.createTableAudioDetections('AUDIO_DETECTIONS')
+    db.addAudioDetections2Db(detecdir)
+    
+    # close connection to database
+    db.close()
 
-# Open connection to posgres database
-db = Database()
-db.open()
-
-## Scan through audio files and populate posgres table
-#wavdir = r'J:\ONC_FAE\data\hydrophone'
-#db.createTableAudioData('AUDIO_DATA')
-#db.addAudioDataset2Db(wavdir)
-
-## Scan through video files and populate posgres table
-#videodir = r'J:\ONC_FAE\data\camera\data'
-#db.createTableVideoData('VIDEO_DATA')
-#db.addVideoDataset2Db(videodir)
-
-## Scan through sonar (.mat) files and populate posgres table
-sonardir = r'J:\ONC_FAE\data\sonar'
-db.createTableVideoData('ARIS_DATA')
-db.addSonarDataset2Db(sonardir)
-
-
-            
-            
-            
-            
-          
-                    
-#db.addSonarDataset2Db(sonardir)
-
-#db.createTableVideoData('ARIS_DATA')
-#db.createTableAudioDetections('FISH_SOUND_DETECTIONS')
-#
-            
-            
-
-db.close()          
-            
+if __name__ == "__main__":
+    main()
